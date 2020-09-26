@@ -2,6 +2,7 @@
 <classpath>
 	<classpathentry kind="src" path="src"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/jdk1.8.0_161"/>
-	<classpathentry kind="lib" path="spigot-1.16.2.jar"/>
+	<classpathentry kind="var" path="MAVEN_REPOSITORY/com/github/cryptomorin/XSeries/7.3.0/XSeries-7.3.0.jar"/>
+	<classpathentry kind="var" path="MAVEN_REPOSITORY/org/spigotmc/spigot/1.16.3-R0.1-SNAPSHOT/spigot-1.16.3-R0.1-SNAPSHOT.jar" sourcepath="/MAVEN_REPOSITORY/org/spigotmc/spigot/1.16.3-R0.1-SNAPSHOT/spigot-1.16.3-R0.1-SNAPSHOT.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

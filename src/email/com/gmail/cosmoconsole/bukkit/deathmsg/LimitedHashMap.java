@@ -9,7 +9,7 @@ public class LimitedHashMap<K,V> extends HashMap<K,V> {
     
     public LimitedHashMap(int capacity) {
         super(capacity + 1);
-        ls = new LimitList<K>(capacity);
+        ls = new LimitList<>(capacity);
     }
 
     @Override

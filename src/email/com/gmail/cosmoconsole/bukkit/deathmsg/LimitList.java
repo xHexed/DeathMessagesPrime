@@ -19,9 +19,7 @@ public class LimitList<T> {
     }
 
     public synchronized T bringToTop(T old) {
-        if (list.contains(old)) {
-            list.remove(old);
-        }
+        list.remove(old);
         list.addLast(old);
         if (list.size() >= bound) {
             return list.removeFirst();

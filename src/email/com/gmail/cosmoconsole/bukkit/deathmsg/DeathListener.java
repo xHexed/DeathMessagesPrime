@@ -8,9 +8,9 @@ import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.ItemTag;
 import net.md_5.bungee.api.chat.TextComponent;
 
+import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.*;
-import org.bukkit.plugin.*;
 import org.bukkit.metadata.*;
 import org.bukkit.event.*;
 import org.bukkit.event.block.Action;
@@ -52,35 +52,35 @@ class DeathListener implements Listener
     private HashMap<UUID, Long> tempbanT;           // temp ban (rate limit) info; time
     private HashMap<UUID, String> dmc;              // temp death message for death-message-compat-mode           
     private HashMap<UUID, Boolean> pvphm;           // was last/current death caused by PVP?
-    private long dmid = -1;                         // ID of current death message
+    private long dmid;                         // ID of current death message
     private Lock flushQueue = new ReentrantLock();  // mutex for queue flush
     private String last_killer_name;                // killer name for current/last death message
     private String last_killer_name2;               // killer display name (player only) for current/last death message
     private ItemStack last_weapon;                  // weapon for current/last death message
     private LimitedHashMap<UUID, String> dhistory;  // current death message for compat
-    private static int curPrefixLen = 0;            // length of the formatted prefix in the current death message
-    private static int curSuffixLen = 0;            // length of the formatted suffix in the current death message
+    private static int curPrefixLen;            // length of the formatted prefix in the current death message
+    private static int curSuffixLen;            // length of the formatted suffix in the current death message
     
     DeathListener(final DeathMessagesPrime plugin, final FileConfiguration config) {
         this.pl = null;
         this.fc = null;
         this.r = null;
         this.pr = EventPriority.HIGH;
-        this.queue = new ArrayList<DeathMessage>();
+        this.queue = new ArrayList<>();
         this.lastkiller = null;
         this.lastvictim = null;
         this.pl = plugin;
         this.fc = config;
         this.r = new Random();
-        this.lastBlock = new HashMap<UUID, Material>();
-        this.lastTicks = new HashMap<UUID, Long>();
-        this.bedTicks = new HashMap<UUID, Long>();
-        this.tempbanC = new HashMap<UUID, Long>();
-        this.tempbanT = new HashMap<UUID, Long>();
-        this.dmc = new HashMap<UUID, String>();
-        this.pvphm = new HashMap<UUID, Boolean>();
+        this.lastBlock = new HashMap<>();
+        this.lastTicks = new HashMap<>();
+        this.bedTicks = new HashMap<>();
+        this.tempbanC = new HashMap<>();
+        this.tempbanT = new HashMap<>();
+        this.dmc = new HashMap<>();
+        this.pvphm = new HashMap<>();
         this.dmid = 0;
-        this.dhistory = new LimitedHashMap<UUID, String>(4);
+        this.dhistory = new LimitedHashMap<>(4);
     }
     
     static boolean mcVer(int comp) {
@@ -94,15 +94,15 @@ class DeathListener implements Listener
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerDamaged(final EntityDamageEvent e) {
         if (e.getEntity() instanceof Player) {
-            final Player p = (Player)e.getEntity();
+            final Metadatable p = e.getEntity();
             if (p.hasMetadata("dmp.lastCause")) {
-                p.removeMetadata("dmp.lastCause", (Plugin)this.pl);
+                p.removeMetadata("dmp.lastCause", this.pl);
             }
             if (p.hasMetadata("dmp.lastDamageSize")) {
-                p.removeMetadata("dmp.lastDamageSize", (Plugin)this.pl);
+                p.removeMetadata("dmp.lastDamageSize", this.pl);
             }
-            p.setMetadata("dmp.lastCause", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, (Object)e.getCause().toString()));
-            p.setMetadata("dmp.lastDamageSize", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, e.getDamage()));
+            p.setMetadata("dmp.lastCause", new FixedMetadataValue(this.pl, e.getCause().toString()));
+            p.setMetadata("dmp.lastDamageSize", new FixedMetadataValue(this.pl, e.getDamage()));
         }/* else if (DeathMessagesPrime.petMessages) { // No API support
             if (e.getEntity() instanceof LivingEntity && e.getEntity() instanceof Tameable) {
                 LivingEntity w = (LivingEntity) e.getEntity();
@@ -123,7 +123,7 @@ class DeathListener implements Listener
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBedClick(final PlayerInteractEvent e) {
         if (e.getAction() != Action.RIGHT_CLICK_BLOCK) return;
-        boolean check = false;
+        boolean check;
         Material m = e.getClickedBlock().getType();
         if (mcVer(1_013)) {
             check = m == Material.BLACK_BED ||
@@ -145,7 +145,7 @@ class DeathListener implements Listener
         } else {
             check = materialSafeCheck(m, "BED") || materialSafeCheck(m, "BED_BLOCK");
         }
-        
+
         if (mcVer(1_016))
         {
             check |= m == Material.RESPAWN_ANCHOR;
@@ -167,7 +167,7 @@ class DeathListener implements Listener
     @EventHandler(ignoreCancelled = true)
     public void onPlayerMove(final PlayerMoveEvent e) {
         Material m = e.getTo().getWorld().getBlockAt(e.getTo()).getType();
-        boolean check = false;
+        boolean check;
         if (mcVer(1_016)) {
             check = m == Material.LADDER || m == Material.VINE || m == Material.WATER || m == Material.SCAFFOLDING
                     || isTrapdoor(m) || m == Material.TWISTING_VINES || m == Material.WEEPING_VINES;
@@ -188,9 +188,6 @@ class DeathListener implements Listener
             Entity en = e.getDamager();
             ProjectileSource sht = null;
             EntityType pjt = null;
-            if (en == null) { // might happen
-                return;
-            }
             if (en instanceof Projectile) {
                 // get projectile info
                 sht = ((Projectile)en).getShooter();
@@ -198,7 +195,7 @@ class DeathListener implements Listener
                 try {
                     en = (Entity)sht;
                 }
-                catch (Exception ex) {}
+                catch (Exception ignored) {}
             }
             if (en == null) { // might still happen
                 return;
@@ -238,9 +235,9 @@ class DeathListener implements Listener
             String dmgr = "[mob]" + typ;
             if (e.getDamager() instanceof Player) {
                 // and replace with player name here if it actually is
-                dmgr = ((Player)e.getDamager()).getName();
+                dmgr = ((AnimalTamer) e.getDamager()).getName();
             }
-            if (sht != null && sht instanceof BlockProjectileSource) {
+            if (sht instanceof BlockProjectileSource) {
                 dmgr = "Dispenser";
             }
             
@@ -265,41 +262,41 @@ class DeathListener implements Listener
             
             final Player p = (Player)e.getEntity();
             if (p.hasMetadata("dmp.lastDamageTime")) {
-                p.removeMetadata("dmp.lastDamageTime", (Plugin)this.pl);
+                p.removeMetadata("dmp.lastDamageTime", this.pl);
             }
-            p.setMetadata("dmp.lastDamageTime", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, new Date().getTime()));
+            p.setMetadata("dmp.lastDamageTime", new FixedMetadataValue(this.pl, new Date().getTime()));
             if (p.hasMetadata("dmp.lastDamageEx")) {
-                p.removeMetadata("dmp.lastDamageEx", (Plugin)this.pl);
+                p.removeMetadata("dmp.lastDamageEx", this.pl);
             }
             if (p.hasMetadata("dmp.lastDamage")) {
-                p.removeMetadata("dmp.lastDamage", (Plugin)this.pl);
+                p.removeMetadata("dmp.lastDamage", this.pl);
             }
             if (p.hasMetadata("dmp.lastDamageEntT")) {
-                p.removeMetadata("dmp.lastDamageEntT", (Plugin)this.pl);
+                p.removeMetadata("dmp.lastDamageEntT", this.pl);
             }
-            if (en instanceof Player && p.getName().equalsIgnoreCase(((Player)en).getName())) {
+            if (en instanceof Player && p.getName().equalsIgnoreCase(en.getName())) {
                 return;
             }
             if (en instanceof Projectile) {
                 final ProjectileSource src = ((Projectile)en).getShooter();
                 if (src != null) {
-                    p.setMetadata("dmp.lastDamageEnt2", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, (Object)src));
+                    p.setMetadata("dmp.lastDamageEnt2", new FixedMetadataValue(this.pl, src));
                 }
             }
             if (en instanceof TNTPrimed) {
                 final Entity src2 = ((TNTPrimed)en).getSource();
                 if (src2 != null) {
-                    p.setMetadata("dmp.lastDamageEnt2", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, (Object)src2));
+                    p.setMetadata("dmp.lastDamageEnt2", new FixedMetadataValue(this.pl, src2));
                 }
             }
-            p.setMetadata("dmp.lastDamage", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, (Object)dmgr));
+            p.setMetadata("dmp.lastDamage", new FixedMetadataValue(this.pl, dmgr));
             if (e.getCause() == DamageCause.BLOCK_EXPLOSION || e.getCause() == DamageCause.ENTITY_EXPLOSION)
-                p.setMetadata("dmp.lastDamageExpl", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, true));
-            p.setMetadata("dmp.lastDamageEnt", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, (Object)en));
+                p.setMetadata("dmp.lastDamageExpl", new FixedMetadataValue(this.pl, true));
+            p.setMetadata("dmp.lastDamageEnt", new FixedMetadataValue(this.pl, en));
             if (pjt != null) {
-                p.setMetadata("dmp.lastDamageEntT", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, (Object)pjt));
+                p.setMetadata("dmp.lastDamageEntT", new FixedMetadataValue(this.pl, pjt));
             }
-            p.setMetadata("dmp.lastDamageEx", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, (Object)dmgr));
+            p.setMetadata("dmp.lastDamageEx", new FixedMetadataValue(this.pl, dmgr));
             
             // remove damage info after 10 sec, unless newer damage info has been registered
             final BukkitRunnable t = new BukkitRunnable() {
@@ -311,30 +308,30 @@ class DeathListener implements Listener
                         if ((n - t) < 9900L) {
                             return;
                         } else {
-                            p.removeMetadata("dmp.lastDamageTime", (Plugin)DeathListener.this.pl);
+                            p.removeMetadata("dmp.lastDamageTime", DeathListener.this.pl);
                         }
                     }
                     if (p.hasMetadata("dmp.lastDamage")) {
-                        p.removeMetadata("dmp.lastDamage", (Plugin)DeathListener.this.pl);
+                        p.removeMetadata("dmp.lastDamage", DeathListener.this.pl);
                     }
                     if (p.hasMetadata("dmp.lastDamageEx")) {
-                        p.removeMetadata("dmp.lastDamageEx", (Plugin)DeathListener.this.pl);
+                        p.removeMetadata("dmp.lastDamageEx", DeathListener.this.pl);
                     }
                     if (p.hasMetadata("dmp.lastDamageExpl")) {
-                        p.removeMetadata("dmp.lastDamageExpl", (Plugin)DeathListener.this.pl);
+                        p.removeMetadata("dmp.lastDamageExpl", DeathListener.this.pl);
                     }
                     if (p.hasMetadata("dmp.lastDamageEnt")) {
-                        p.removeMetadata("dmp.lastDamageEnt", (Plugin)DeathListener.this.pl);
+                        p.removeMetadata("dmp.lastDamageEnt", DeathListener.this.pl);
                     }
                     if (p.hasMetadata("dmp.lastDamageEntT")) {
-                        p.removeMetadata("dmp.lastDamageEntT", (Plugin)DeathListener.this.pl);
+                        p.removeMetadata("dmp.lastDamageEntT", DeathListener.this.pl);
                     }
                     if (p.hasMetadata("dmp.lastDamageEnt2")) {
-                        p.removeMetadata("dmp.lastDamageEnt2", (Plugin)DeathListener.this.pl);
+                        p.removeMetadata("dmp.lastDamageEnt2", DeathListener.this.pl);
                     }
                 }
             };
-            t.runTaskLater((Plugin)pl, 200L);
+            t.runTaskLater(pl, 200L);
         }
     }
 
@@ -358,15 +355,11 @@ class DeathListener implements Listener
 
         Object nmsNbtTagCompoundObj; 
         Object nmsItemStackObj; 
-        Object itemAsJsonObject; 
+        Object itemAsJsonObject;
 
-        try {
-            nmsNbtTagCompoundObj = nbtTagCompoundClazz.newInstance();
-            nmsItemStackObj = asNMSCopyMethod.invoke(null, itemStack);
-            itemAsJsonObject = saveNmsItemStackMethod.invoke(nmsItemStackObj, nmsNbtTagCompoundObj);
-        } catch (Throwable t) {
-            throw t;
-        }
+        nmsNbtTagCompoundObj = nbtTagCompoundClazz.newInstance();
+        nmsItemStackObj = asNMSCopyMethod.invoke(null, itemStack);
+        itemAsJsonObject = saveNmsItemStackMethod.invoke(nmsItemStackObj, nmsNbtTagCompoundObj);
 
         return itemAsJsonObject.toString();
     }
@@ -384,12 +377,12 @@ class DeathListener implements Listener
                 sb.append(word.substring(1));
             }
         }
-        return sb.toString().substring(1);
+        return sb.substring(1);
     }
     
     @SuppressWarnings("unchecked")
     String convertEntityToJson(Entity entity, String name) throws Exception {
-        Map<String, String> data = new HashMap<String, String>();
+        Map<String, String> data = new HashMap<>();
         data.put( "name", name );
         data.put( "type",
                 mcVer(1_014)
@@ -466,7 +459,7 @@ class DeathListener implements Listener
                             messageToUse = ls.get(r.nextInt(ls.size()));
                     }
                 }
-            } catch (Exception ex) {
+            } catch (Exception ignored) {
             }
             try {
                 ConfigurationSection cc = this.fc.getConfigurationSection("custom-messages-per-weapon-name");
@@ -487,7 +480,7 @@ class DeathListener implements Listener
                             }
                         }
                     }
-            } catch (Exception ex) {
+            } catch (Exception ignored) {
             }
         }
         if (shouldFetch) {
@@ -506,14 +499,14 @@ class DeathListener implements Listener
                             messageToUse = dmsgs.get(r.nextInt(dmsgs.size()));
                     }
                 }
-            } catch (Exception ex) {
+            } catch (Exception ignored) {
             }
-            if (k != null && k instanceof Player) {
+            if (k instanceof Player) {
                 try {
                     ConfigurationSection A = pl.config.getConfigurationSection("custom-messages-per-killer-player");
                     if (A != null)
                     {
-                        ConfigurationSection B = A.getConfigurationSection(((Player)k).getUniqueId().toString());
+                        ConfigurationSection B = A.getConfigurationSection(k.getUniqueId().toString());
                         if (!B.contains(ar)) ar = "*";
                         if (B.contains(ar))
                         {
@@ -524,7 +517,7 @@ class DeathListener implements Listener
                                 messageToUse = dmsgs.get(r.nextInt(dmsgs.size()));
                         }
                     }
-                } catch (Exception ex) {
+                } catch (Exception ignored) {
                 }
             }
             try {
@@ -542,14 +535,14 @@ class DeathListener implements Listener
                             messageToUse = dmsgs.get(r.nextInt(dmsgs.size()));
                     }
                 }
-            } catch (Exception ex) {
+            } catch (Exception ignored) {
             }
         }
         
         return this.format(e, messageToUse, killer_name, killer_name2, weapon_name, is);
     }
     
-    String handleStandardPlaceholders(String text, Player p, String killer_name, String killer_name2, String weapon_name, ItemStack is, boolean killer_xp_ok, int killer_xp, int killer_level, double rdist) {
+    String handleStandardPlaceholders(String text, Player p, CharSequence killer_name, CharSequence killer_name2, String weapon_name, ItemStack is, boolean killer_xp_ok, int killer_xp, int killer_level, double rdist) {
         return ChatColor.translateAlternateColorCodes('&', 
                 text)
                 .replace("%player%", p.getName())
@@ -589,8 +582,8 @@ class DeathListener implements Listener
                     // get next %placeholder%
                     if (start >= txt.length()) {
                         break;
-                    };
-                    start = txt.indexOf("%", start);
+                    }
+                    start = txt.indexOf('%', start);
                     if (start < 0) {
                         // no more placeholders
                         TextComponent tmp = new TextComponent(txt.substring(oldstart));
@@ -598,7 +591,7 @@ class DeathListener implements Listener
                         dst.add(tmp);
                         break;
                     }
-                    end = txt.indexOf("%", start + 1);
+                    end = txt.indexOf('%', start + 1);
                     if (end < 0) {
                         // got first % but not a second one. this is a syntax error, but we'll let it slide
                         TextComponent tmp = new TextComponent(txt.substring(oldstart));
@@ -674,7 +667,7 @@ class DeathListener implements Listener
                         } catch (Throwable t_) {
                             if (pl.debug) t_.printStackTrace();
                         }
-                    } else if (tag.equals("")) {
+                    } else if (tag.isEmpty()) {
                         result = new TextComponent(TextComponent.fromLegacyText("%"));
                     } else if (DeathMessagesPrime.taglisteners.containsKey(tag)) {
                         EntityDamageEvent.DamageCause dam = DamageCause.CUSTOM;
@@ -688,9 +681,9 @@ class DeathListener implements Listener
                         if (p.hasMetadata("dmp.lastCause") && p.getMetadata("dmp.lastCause").size() > 0) {
                             dam = EntityDamageEvent.DamageCause.valueOf(p.getMetadata("dmp.lastCause").get(0).asString());
                         }
-                        for (String k: DeathMessagesPrime.taglistenerprefixes.keySet()) {
-                            if (tag.startsWith(k)) {
-                                result = DeathMessagesPrime.taglistenerprefixes.get(k).formatTag(tag, p, dam, damager);
+                        for (Map.Entry<String, DeathMessageTagListener> entry : DeathMessagesPrime.taglistenerprefixes.entrySet()) {
+                            if (tag.startsWith(entry.getKey())) {
+                                result = entry.getValue().formatTag(tag, p, dam, damager);
                                 break;
                             }
                         }
@@ -740,15 +733,17 @@ class DeathListener implements Listener
             suff = this.fc.getString("death-messages.suffix-pvp", suff);
         }
         double rdist = -1;
-        Entity damager = null;
+        Entity damager;
         try {
             damager = (Entity) p.getMetadata("dmp.lastDamageEnt").get(0).value();
-            if (damager != null && damager.getLocation() != null)
+            if (damager != null) {
+                damager.getLocation();
                 rdist = p.getLocation().distance(damager.getLocation());
+            }
         } catch (Exception ex) {
             damager = null;
         }
-        boolean killer_xp_ok = false;
+        boolean killer_xp_ok;
         int killer_xp = 0, killer_level = 0;
         if (killer_xp_ok = (damager instanceof Player)) {
             killer_xp = getXP(((Player) damager));
@@ -765,9 +760,9 @@ class DeathListener implements Listener
                         if (!im.hasItemFlag(ifl)) {
                             im.addItemFlags(ifl);
                         }
-                    } catch (Exception ex) {}
+                    } catch (Exception ignored) {}
                 }
-            } catch (Exception ex) { }
+            } catch (Exception ignored) { }
             is.setItemMeta(im);
         }
         
@@ -794,7 +789,7 @@ class DeathListener implements Listener
     }
 
     @SuppressWarnings("deprecation")
-    private Object getBiome(Player p) {
+    private Object getBiome(Entity p) {
         if (mcVer(1_015)) {
             return p.getWorld().getBiome(p.getLocation().getBlockX(), p.getLocation().getBlockY(), p.getLocation().getBlockZ());
         } else {
@@ -802,7 +797,7 @@ class DeathListener implements Listener
         }
     }
     
-    private String getBiomeName(Player p)
+    private String getBiomeName(Entity p)
     {
         Object biome = getBiome(p);
         if (biome == null) return "???";
@@ -866,9 +861,9 @@ class DeathListener implements Listener
     }
 
     private int getXP(Player p) {
-        int exp = 0;
+        int exp;
         int level = p.getLevel();
-        int levelexp = 0;
+        int levelexp;
         if (level <= 16) {
             exp = level * level + 6 * level;
         } else if (level <= 31) {
@@ -939,7 +934,7 @@ class DeathListener implements Listener
                 if (k.equals(b))
                     return c.getString(k);
             }
-        } catch (Exception ex) {}
+        } catch (Exception ignored) {}
         return this.correctCase(b);
     }
 
@@ -950,7 +945,7 @@ class DeathListener implements Listener
                 if (k.equals(w))
                     return c.getString(k);
             }
-        } catch (Exception ex) {}
+        } catch (Exception ignored) {}
         return w;
     }
     
@@ -959,7 +954,7 @@ class DeathListener implements Listener
     }
     
     String correctCase(final String string) {
-        return (String.valueOf(string.substring(0, 1).toUpperCase()) + string.substring(1).toLowerCase()).replace('_', ' ');
+        return (string.substring(0, 1).toUpperCase() + string.substring(1).toLowerCase()).replace('_', ' ');
     }
     
     String mobNameConfigurate(final String s) {
@@ -1176,11 +1171,11 @@ class DeathListener implements Listener
         if (s.equalsIgnoreCase("PIGLIN_BRUTE")) {
             return "PiglinBrute";
         }
-        return String.valueOf(s) + "(?)";
+        return s + "(?)";
     }
     
     private TextComponent handleCustomMessages(PlayerDeathEvent e, Player p, Entity damager, boolean isPvP, String section, String death_tag, boolean use_player_for_get_killer_name) {
-        TextComponent deathmsg = null;
+        TextComponent deathmsg;
         String checkname = this.getCheckName(damager, p, false);
         if (isPvP) {
             deathmsg = handleCustomPlayerMessages(e, p, damager, section, death_tag, checkname, use_player_for_get_killer_name);
@@ -1190,7 +1185,7 @@ class DeathListener implements Listener
         return deathmsg;
     }
 
-    private TextComponent handleCustomPlayerMessages(PlayerDeathEvent e, Player p, Entity source, String section, String death_tag, String checkname, boolean use_player_for_get_killer_name) {
+    private TextComponent handleCustomPlayerMessages(PlayerDeathEvent e, Metadatable p, Entity source, String section, String death_tag, String checkname, boolean use_player_for_get_killer_name) {
         TextComponent deathmsg = null;
         if (this.fc.isConfigurationSection("custom-user-death-messages")) {
             ConfigurationSection cc = this.fc.getConfigurationSection("custom-user-death-messages").getConfigurationSection("Potion");
@@ -1226,7 +1221,7 @@ class DeathListener implements Listener
         return deathmsg;
     }
 
-    private TextComponent handleCustomMobMessages(PlayerDeathEvent e, Player p, Entity le, String section, String death_tag, boolean use_player_for_get_killer_name) {
+    private TextComponent handleCustomMobMessages(PlayerDeathEvent e, Metadatable p, Entity le, String section, String death_tag, boolean use_player_for_get_killer_name) {
         TextComponent deathmsg = null;
         if (this.fc.isConfigurationSection("custom-mob-death-messages")) {
             String checkname = this.getCheckName(le, p, false);
@@ -1250,7 +1245,7 @@ class DeathListener implements Listener
         return mcVerRev(1_016, 2);
     }
     
-    private String getReasonForMob(String mob, LivingEntity le) {
+    private String getReasonForMob(String mob, Nameable le) {
         if (le.getCustomName() == null || !passable(le.getCustomName())) {
             return "mob." + mob;
         } else {
@@ -1310,7 +1305,7 @@ class DeathListener implements Listener
         // damage info setup
         this.lastvictim = p;
         this.lastkiller = null;
-        String vdeathmsg = "";
+        String vdeathmsg;
         boolean isPvP = false;
         pvphm.put(pu, false);
         TextComponent deathmsg = null;
@@ -1319,7 +1314,7 @@ class DeathListener implements Listener
         try {
             damager = (Entity) p.getMetadata("dmp.lastDamageEnt").get(0).value();
         }
-        catch (Exception ex3) {}
+        catch (Exception ignored) {}
         EntityDamageEvent.DamageCause d = EntityDamageEvent.DamageCause.CUSTOM;
         if (p.getLastDamageCause() != null) {
             d = p.getLastDamageCause().getCause();
@@ -1331,7 +1326,7 @@ class DeathListener implements Listener
             this.broadcastDebug("§ePlayer " + p.getName(), p, w, false);
             this.broadcastDebug("§eDamage cause " + d.toString(), p, w, false);
             if (p.hasMetadata("dmp.lastDamage")) {
-                this.broadcastDebug("§eFound entity damager " + String.valueOf(damager) + " | " + this.getKillerName(damager, p), p, w, false);
+                this.broadcastDebug("§eFound entity damager " + damager + " | " + this.getKillerName(damager, p), p, w, false);
             }
             else if (p.hasMetadata("dmp.lastDamageEx")) {
                 this.broadcastDebug("§eFound extended entity damager " + this.getKillerName(damager, p), p, w, false);
@@ -1349,7 +1344,7 @@ class DeathListener implements Listener
         
         final Location l = p.getLocation();
         try {
-            vdeathmsg = "Death[Player=" + p.getName() + ",LastCause=" + d.toString() + ",Damager=" + (p.hasMetadata("dmp.lastDamage") ? (String.valueOf(String.valueOf(damager)) + "(" + this.getKillerName(damager, p) + ")") : (p.hasMetadata("dmp.lastDamageEx") ? (String.valueOf(String.valueOf(damager)) + "(" + this.getKillerName(damager, p) + ")EX") : "null")) + ",Location=[" + l.getWorld().getName() + "](" + l.getBlockX() + "," + l.getBlockY() + "," + l.getBlockZ() + ")";
+            vdeathmsg = "Death[Player=" + p.getName() + ",LastCause=" + d.toString() + ",Damager=" + (p.hasMetadata("dmp.lastDamage") ? (damager + "(" + this.getKillerName(damager, p) + ")") : (p.hasMetadata("dmp.lastDamageEx") ? (damager + "(" + this.getKillerName(damager, p) + ")EX") : "null")) + ",Location=[" + l.getWorld().getName() + "](" + l.getBlockX() + "," + l.getBlockY() + "," + l.getBlockZ() + ")";
         }
         catch (Exception ex) {
             try {
@@ -1365,18 +1360,18 @@ class DeathListener implements Listener
         double dmgd = 0;
         try {
             dmgd = p.getMetadata("dmp.lastDamageSize").get(0).asDouble();
-        } catch (Exception ex) {}
+        } catch (Exception ignored) {}
         
         // pre DMP event
         
         DeathPreDMPEvent pree = new DeathPreDMPEvent(p, damager, dc, dmgd);
         pl.getServer().getPluginManager().callEvent(pree);
         if (!this.pl.debug && damager == null) {
-            p.removeMetadata("dmp.lastDamage", (Plugin)this.pl);
-            p.removeMetadata("dmp.lastDamageEx", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamage", this.pl);
+            p.removeMetadata("dmp.lastDamageEx", this.pl);
         }
         String death_tag = "unknown";
-        p.removeMetadata("dmp.lastDamageSize", (Plugin)this.pl);
+        p.removeMetadata("dmp.lastDamageSize", this.pl);
         
         
         
@@ -1697,7 +1692,7 @@ class DeathListener implements Listener
                 try {
                     source = (Entity) p.getMetadata("dmp.lastDamageEnt2").get(0).value();
                 }
-                catch (Exception ex4) {}
+                catch (Exception ignored) {}
                 if (this.pl.debug) {
                     if (source != null) {
                         this.broadcastDebug("Â§eTNT igniter could be retrieved: " + source.toString(), p, w, false);
@@ -1708,7 +1703,7 @@ class DeathListener implements Listener
                 }
                 boolean selfIgnited = false;
                 if (source instanceof Player) {
-                    selfIgnited = ((Player)source).getName().equalsIgnoreCase(p.getName());
+                    selfIgnited = source.getName().equalsIgnoreCase(p.getName());
                 }
                 if (source instanceof LivingEntity && !selfIgnited) {
                     TextComponent result = handleCustomMessages(e, p, source, isPvP, "TNTKill", " natural.TNTKill", false);
@@ -1723,7 +1718,7 @@ class DeathListener implements Listener
                     selfIgnited = false;
                     final Entity shooter = (Entity)((Projectile)source).getShooter();
                     if (shooter instanceof Player) {
-                        selfIgnited = ((Player)shooter).getName().equalsIgnoreCase(p.getName());
+                        selfIgnited = shooter.getName().equalsIgnoreCase(p.getName());
                         if (source instanceof LivingEntity && !selfIgnited) {
                             isPvP = true;
                             pvphm.put(pu, true);
@@ -1756,20 +1751,19 @@ class DeathListener implements Listener
         }
         else if (d == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION) {
             if (damager instanceof Creeper) {
-                final LivingEntity le = (LivingEntity)damager;
-                TextComponent result = handleCustomMobMessages(e, p, le, "TNTKill", " natural.TNTKill", false);
+                TextComponent result = handleCustomMobMessages(e, p, damager, "TNTKill", " natural.TNTKill", false);
                 if (result != null) {
                     deathmsg = result;
                     death_tag = " natural.TNTKill";
                 } else {
                     String csuf = "";
-                    if (((Creeper) le).isPowered())
+                    if (((Creeper) damager).isPowered())
                         csuf = "Charged";
                     
-                    if (le.getCustomName() == null || !passable(le.getCustomName())) {
+                    if (damager.getCustomName() == null || !passable(damager.getCustomName())) {
                         deathmsg = this.formatV(e, death_tag = "mob.Creeper" + csuf, this.getMessage("death-messages.mob.Creeper" + csuf), "", "");
                     } else {
-                        deathmsg = this.formatV(e, death_tag = getNamedMobSection() + ".Creeper" + csuf, this.getMessage("death-messages." + getNamedMobSection() + ".Creeper" + csuf), le.getCustomName(), "");
+                        deathmsg = this.formatV(e, death_tag = getNamedMobSection() + ".Creeper" + csuf, this.getMessage("death-messages." + getNamedMobSection() + ".Creeper" + csuf), damager.getCustomName(), "");
                     }
                 }
             }
@@ -1777,16 +1771,15 @@ class DeathListener implements Listener
                 deathmsg = this.formatV(e, death_tag = "natural.EnderCrystal", this.getMessage("death-messages.natural.EnderCrystal"), "", "");
             }
             else if (damager instanceof Wither) {
-                final LivingEntity le = (LivingEntity)damager;
-                TextComponent result = handleCustomMobMessages(e, p, le, "TNTKill", " natural.TNTKill", false);
+                TextComponent result = handleCustomMobMessages(e, p, damager, "TNTKill", " natural.TNTKill", false);
                 if (result != null) {
                     deathmsg = result;
                     death_tag = " natural.TNTKill";
                 } else {
-                    if (le.getCustomName() == null || !passable(le.getCustomName())) {
+                    if (damager.getCustomName() == null || !passable(damager.getCustomName())) {
                         deathmsg = this.formatV(e, death_tag = "mob.WitherSpawnBoom", this.getMessage("death-messages.mob.WitherSpawnBoom"), "", "");
                     } else {
-                        deathmsg = this.formatV(e, death_tag = getNamedMobSection() + ".WitherSpawnBoom", this.getMessage("death-messages." + getNamedMobSection() + ".WitherSpawnBoom"), le.getCustomName(), "");
+                        deathmsg = this.formatV(e, death_tag = getNamedMobSection() + ".WitherSpawnBoom", this.getMessage("death-messages." + getNamedMobSection() + ".WitherSpawnBoom"), damager.getCustomName(), "");
                     }
                 }
             }
@@ -1795,9 +1788,9 @@ class DeathListener implements Listener
                 if (mcVer(1_016))
                 {
                     ProjectileSource source = ((WitherSkull)damager).getShooter();
-                    if (source != null && source instanceof LivingEntity)
+                    if (source instanceof LivingEntity)
                     {
-                        LivingEntity le = (LivingEntity)source;
+                        Entity le = (LivingEntity)source;
                         TextComponent result = handleCustomMessages(e, p, le, isPvP, "WitherSkull", " natural.WitherSkull", false);
                         if (result != null) {
                             deathmsg = result;
@@ -1817,7 +1810,7 @@ class DeathListener implements Listener
                     boolean selfIgnited;
                     final Entity shooter = (Entity)((Projectile)damager).getShooter();
                     if (shooter instanceof Player) {
-                        selfIgnited = ((Player)shooter).getName().equalsIgnoreCase(p.getName());
+                        selfIgnited = shooter.getName().equalsIgnoreCase(p.getName());
                         if (damager instanceof LivingEntity && !selfIgnited) {
                             String wn = null;
                             isPvP = true;
@@ -1881,7 +1874,7 @@ class DeathListener implements Listener
                 try {
                     source = (Entity) p.getMetadata("dmp.lastDamageEnt2").get(0).value();
                 }
-                catch (Exception ex4) {}
+                catch (Exception ignored) {}
                 if (this.pl.debug) {
                     if (source != null) {
                         this.broadcastDebug("Â§eTNT igniter could be retrieved: " + source.toString(), p, w, false);
@@ -1892,7 +1885,7 @@ class DeathListener implements Listener
                 }
                 boolean selfIgnited = false;
                 if (source instanceof Player) {
-                    selfIgnited = ((Player)source).getName().equalsIgnoreCase(p.getName());
+                    selfIgnited = source.getName().equalsIgnoreCase(p.getName());
                 }
                 if (source instanceof LivingEntity && !selfIgnited) {
                     TextComponent result = handleCustomMessages(e, p, source, isPvP, "TNTKill", " natural.TNTKill", false);
@@ -1907,7 +1900,7 @@ class DeathListener implements Listener
                     selfIgnited = false;
                     final Entity shooter = (Entity)((Projectile)source).getShooter();
                     if (shooter instanceof Player) {
-                        selfIgnited = ((Player)shooter).getName().equalsIgnoreCase(p.getName());
+                        selfIgnited = shooter.getName().equalsIgnoreCase(p.getName());
                         if (source instanceof LivingEntity && !selfIgnited) {
                             isPvP = true;
                             pvphm.put(pu, true);
@@ -1976,12 +1969,12 @@ class DeathListener implements Listener
                     } else {
                         deathmsg = null;
                         if (safeKill.isEmpty()) {
-                            String wpn2 = "";
+                            String wpn2;
                             isPvP = true;
                             pvphm.put(pu, true);
                             if (damager instanceof Player)
                                 this.lastkiller = (Player) damager;
-                            ItemStack is3 = null;
+                            ItemStack is3;
                             if (damager instanceof LivingEntity && ((LivingEntity)damager).getEquipment() != null && getItemInMainHand(((LivingEntity)damager).getEquipment()) != null) {
                                 String cn = null;
                                 final ItemStack is = getItemInMainHand(((LivingEntity)damager).getEquipment());
@@ -2037,14 +2030,14 @@ class DeathListener implements Listener
                 } else if (damager instanceof ProjectileSource) {
                     sht = (ProjectileSource)damager;
                 }
-                String reason = null;
+                String reason;
                 if (sht != null) {
                     if (sht instanceof Witch) {
-                        final LivingEntity le2 = (LivingEntity)sht;
+                        final Nameable le2 = (LivingEntity)sht;
                         reason = getReasonForMob("Witch", le2);
                         deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le2.getCustomName()), "");
                     } else if (mcVer(1_009) && sht instanceof EnderDragon && damager instanceof AreaEffectCloud) {
-                        final LivingEntity le2 = (LivingEntity)sht;
+                        final Nameable le2 = (LivingEntity)sht;
                         reason = getReasonForMob("EnderDragonBreath", le2);
                         deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le2.getCustomName()), "");
                     } else if (sht instanceof Player) {
@@ -2052,14 +2045,13 @@ class DeathListener implements Listener
                         isPvP = true;
                         pvphm.put(pu, true);
                         this.lastkiller = le3;
-                        Player source = le3;
                         reason = "pvp.PlayerPotion";
-                        TextComponent result = handleCustomPlayerMessages(e, p, source, "Potion", reason, "", false);
+                        TextComponent result = handleCustomPlayerMessages(e, p, le3, "Potion", reason, "", false);
                         if (result != null) {
                             deathmsg = result;
                             death_tag = reason;
                         } else {
-                            deathmsg = this.formatV(e, source, death_tag = reason, this.getMessage("death-messages.pvp.PlayerPotion"), le3.getName(), le3.getDisplayName(), "");
+                            deathmsg = this.formatV(e, le3, death_tag = reason, this.getMessage("death-messages.pvp.PlayerPotion"), le3.getName(), le3.getDisplayName(), "");
                         }
                     } else {
                         reason = "natural.PotionHarming";
@@ -2080,7 +2072,7 @@ class DeathListener implements Listener
             }
         }
         else if (d == EntityDamageEvent.DamageCause.PROJECTILE) {
-            Projectile pj = null;
+            Projectile pj;
             EntityType pjt = null;
             ProjectileSource sht2 = null;
             if (p.hasMetadata("dmp.lastDamageEnt2")) {
@@ -2165,7 +2157,6 @@ class DeathListener implements Listener
                             useCustomWeapon = true;
                         }
                     }
-                    Entity source = ply;
                     boolean noUseItem = false;
                     switch (pjt) {
                         case ARROW:
@@ -2200,7 +2191,7 @@ class DeathListener implements Listener
                     } else if (wpn.isEmpty() && is5 != null) {
                         wpn = itemStackNameToString(is5);
                     }
-                    TextComponent result = handleCustomPlayerMessages(e, p, source, "Ranged", reason, "", false);
+                    TextComponent result = handleCustomPlayerMessages(e, p, ply, "Ranged", reason, "", false);
                     if (result != null) {
                         deathmsg = result;
                         death_tag = reason;
@@ -2209,7 +2200,7 @@ class DeathListener implements Listener
                     else
                         deathmsg = this.formatV(e, ply, death_tag = reason, this.getMessage("death-messages." + reason), ply.getName(), ply.getDisplayName(), "");
                 } else if (mcVer(1_009) && sht2 instanceof Shulker) {
-                    final LivingEntity le4 = (LivingEntity)sht2;
+                    final Nameable le4 = (LivingEntity)sht2;
                     switch (pjt) {
                         case SHULKER_BULLET:
                             reason = getReasonForMob("Shulker", le4);
@@ -2219,7 +2210,7 @@ class DeathListener implements Listener
                     }
                     deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le4.getCustomName()), "");
                 } else if (sht2 instanceof Wither) {
-                    final LivingEntity le4 = (LivingEntity)sht2;
+                    final Nameable le4 = (LivingEntity)sht2;
                     switch (pjt) {
                         case WITHER_SKULL: 
                             reason = getReasonForMob("Wither", le4);
@@ -2229,7 +2220,7 @@ class DeathListener implements Listener
                     }
                     deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le4.getCustomName()), "");
                 } else if (sht2 instanceof Ghast) {
-                    final LivingEntity le4 = (LivingEntity)sht2;
+                    final Nameable le4 = (LivingEntity)sht2;
                     switch (pjt) {
                         case FIREBALL:
                         case SMALL_FIREBALL: 
@@ -2240,7 +2231,7 @@ class DeathListener implements Listener
                     }
                     deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le4.getCustomName()), "");
                 } else if (sht2 instanceof Blaze) {
-                    final LivingEntity le4 = (LivingEntity)sht2;
+                    final Nameable le4 = (LivingEntity)sht2;
                     switch (pjt) {
                         case FIREBALL:
                         case SMALL_FIREBALL: 
@@ -2251,7 +2242,7 @@ class DeathListener implements Listener
                     }
                     deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le4.getCustomName()), "");
                 } else if (mcVer(1_011) && sht2 instanceof Llama) {
-                    final LivingEntity le4 = (LivingEntity)sht2;
+                    final Nameable le4 = (LivingEntity)sht2;
                     switch (pjt) {
                         case LLAMA_SPIT: 
                             reason = getReasonForMob("Llama", le4);
@@ -2261,7 +2252,7 @@ class DeathListener implements Listener
                     }
                     deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le4.getCustomName()), "");
                 } else if (sht2 instanceof Snowman) {
-                    final LivingEntity le4 = (LivingEntity)sht2;
+                    final Nameable le4 = (LivingEntity)sht2;
                     switch (pjt) {
                         case SNOWBALL: 
                             reason = getReasonForMob("SnowGolem", le4);
@@ -2271,7 +2262,7 @@ class DeathListener implements Listener
                     }
                     deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le4.getCustomName()), "");
                 } else if (mcVer(1_011) && sht2 instanceof Stray) {
-                    final LivingEntity le4 = (LivingEntity)sht2;
+                    final Nameable le4 = (LivingEntity)sht2;
                     switch (pjt) {
                         case ARROW:
                         case SPECTRAL_ARROW:
@@ -2282,7 +2273,7 @@ class DeathListener implements Listener
                     }
                     deathmsg = this.formatV(e, death_tag = reason, this.getMessage("death-messages." + reason), getLEName(le4.getCustomName()), "");
                 } else if (mcVer(1_012) && sht2 instanceof Illusioner) {
-                    final LivingEntity le4 = (LivingEntity)sht2;
+                    final Nameable le4 = (LivingEntity)sht2;
                     switch (pjt) {
                         case ARROW:
                         case SPECTRAL_ARROW:
@@ -2298,7 +2289,7 @@ class DeathListener implements Listener
                         case TRIDENT: {
                             String customfooter = "";
                             ItemStack is2 = getItemInMainHand(le4.getEquipment());
-                            String cn2 = "";
+                            String cn2;
                             if (is2 == null || is2.getItemMeta() == null || isEmptyDisplayName(is2.getItemMeta().getDisplayName()))
                                 cn2 = itemStackNameToString(is2);
                             else {
@@ -2327,7 +2318,7 @@ class DeathListener implements Listener
                         case SPECTRAL_ARROW: {
                             String customfooter = "";
                             ItemStack is2 = getItemInMainHand(le4.getEquipment());
-                            String cn2 = "";
+                            String cn2;
                             if (!this.fc.getBoolean("show-custom-death-msg-on-all-weapons", false) && (is2 == null || is2.getItemMeta() == null || isEmptyDisplayName(is2.getItemMeta().getDisplayName()))) {
                                 cn2 = itemStackNameToString(is2);
                             } else {
@@ -2356,7 +2347,7 @@ class DeathListener implements Listener
                         case SPECTRAL_ARROW: {
                             String customfooter = "";
                             ItemStack is2 = getItemInMainHand(le4.getEquipment());
-                            String cn2 = "";
+                            String cn2;
                             if (!this.fc.getBoolean("show-custom-death-msg-on-all-weapons", false) && (is2 == null || is2.getItemMeta() == null || isEmptyDisplayName(is2.getItemMeta().getDisplayName()))) {
                                 cn2 = itemStackNameToString(is2);
                             } else {
@@ -2411,7 +2402,7 @@ class DeathListener implements Listener
             String reason = "";
             if (mcVer(1_016) && damager instanceof WitherSkull)
             {
-                WitherSkull ws = (WitherSkull)damager;
+                Projectile ws = (WitherSkull)damager;
                 ProjectileSource ps = ws.getShooter();
                 if (ps instanceof Player) {
                     Player source = (Player)ps;
@@ -2607,7 +2598,7 @@ class DeathListener implements Listener
             String add = "Melee";
             String wpn2 = "";
             ItemStack is3 = null;
-            EntityEquipment ee = null;
+            EntityEquipment ee;
             boolean ok_zombie = false;
             if (mcVer(1_011)) {
                 ok_zombie = damager instanceof ZombieVillager || damager instanceof Husk;
@@ -2715,10 +2706,10 @@ class DeathListener implements Listener
                     }
                 }
                 reason = "pvp.Player" + add;
-                deathmsg = this.formatV(e, le, death_tag = reason, this.getMessage("death-messages.pvp.Player" + add), ((Player)le).getName(), ((Player)le).getDisplayName(), wpn2, is3);
+                deathmsg = this.formatV(e, le, death_tag = reason, this.getMessage("death-messages.pvp.Player" + add), ((AnimalTamer) le).getName(), ((Player)le).getDisplayName(), wpn2, is3);
             }
             
-            if (damager != null && damager instanceof LivingEntity && !reason.isEmpty()) {
+            if (damager instanceof LivingEntity && !reason.isEmpty()) {
                 TextComponent result = handleCustomMessages(e, p, damager, isPvP, "Melee", reason, true);
                 if (result != null) {
                     deathmsg = result;
@@ -2744,22 +2735,22 @@ class DeathListener implements Listener
         
         // remove damage info
         if (p.hasMetadata("dmp.lastDamageEntT")) {
-            p.removeMetadata("dmp.lastDamageEntT", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamageEntT", this.pl);
         }
         if (p.hasMetadata("dmp.lastDamageEnt2")) {
-            p.removeMetadata("dmp.lastDamageEnt2", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamageEnt2", this.pl);
         }
         if (p.hasMetadata("dmp.lastDamageEnt")) {
-            p.removeMetadata("dmp.lastDamageEnt", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamageEnt", this.pl);
         }
         if (p.hasMetadata("dmp.lastDamageEx")) {
-            p.removeMetadata("dmp.lastDamageEx", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamageEx", this.pl);
         }
         if (p.hasMetadata("dmp.lastDamage")) {
-            p.removeMetadata("dmp.lastDamage", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamage", this.pl);
         }
         if (p.hasMetadata("dmp.lastCause")) {
-            p.removeMetadata("dmp.lastCause", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastCause", this.pl);
         }
         if (deathmsg == null) {
             deathmsg = this.formatV(e, "unknown", this.getMessage("death-messages.unknown"), "", "");
@@ -2778,7 +2769,7 @@ class DeathListener implements Listener
             return;
         }
         isPvP = br.isPVP();
-        if (br.getTag() != death_tag.trim() && br.getTag() != null) {
+        if (!br.getTag().equals(death_tag.trim()) && br.getTag() != null) {
             String tag = br.getTag();
             if (this.fc.contains("death-messages." + tag)) {
                 String msg = this.getMessage("death-messages." + tag);
@@ -2800,7 +2791,7 @@ class DeathListener implements Listener
             if (deathmsg.getExtra().size() == 1 && deathmsg.getExtra().get(0).getInsertion().length() < 1) {
                 return;
             } 
-        } catch (Exception ex) {
+        } catch (Exception ignored) {
         }
         fdeathmsg.addExtra(deathmsg);
         if (this.fc.getBoolean("death-message-compat-mode")) {
@@ -2832,10 +2823,10 @@ class DeathListener implements Listener
         }
     }
 
-    private Entity resolveDamager(Player p, Entity damager) {
+    private Entity resolveDamager(Metadatable p, Entity damager) {
         Entity nDamager = resolveDamagerRaw(damager);
         if (nDamager != damager && nDamager != null)
-            p.setMetadata("dmp.lastDamage", (MetadataValue)new FixedMetadataValue((Plugin)this.pl, "[mob]" + nDamager.getType().toString()));
+            p.setMetadata("dmp.lastDamage", new FixedMetadataValue(this.pl, "[mob]" + nDamager.getType().toString()));
         return damager;
     }
 
@@ -2859,11 +2850,7 @@ class DeathListener implements Listener
         }
         else if (damager instanceof ProjectileSource) {
             ProjectileSource sht = (ProjectileSource)damager;
-            if (sht instanceof Entity) {
-                return (Entity)sht;
-            } else {
-                return null;
-            }
+            return (Entity)sht;
         }
         return damager;
     }
@@ -2878,8 +2865,7 @@ class DeathListener implements Listener
                 this.assertNotNull(o);
                 return o.toString();
             }
-            catch (Exception ex) {}
-            catch (AssertionError assertionError) {}
+            catch (Exception | AssertionError ignored) {}
         }
         return getStandardName(m);
     }
@@ -2943,19 +2929,14 @@ class DeathListener implements Listener
                     try {
                         c = ReflectionUtil.getMethod(nmsEntityClazz, "save", nbtTagCompoundClazz);
                         c.invoke(nmse, nmstag);
-                    } catch (Exception ex2) {}
+                    } catch (Exception ignored) {}
                 }
                 if (c == null) return false;
                 c.invoke(nmse, nmstag);
                 Method getIntMethod = ReflectionUtil.getMethod(nbtTagCompoundClazz, "getInt", String.class);
                 int i = (Integer)getIntMethod.invoke(nmstag, "ZombieType");
                 return (i == 6);
-            } catch (ClassNotFoundException e) {
-            } catch (NoSuchMethodException | SecurityException e) {
-            } catch (InstantiationException e) {
-            } catch (IllegalAccessException e) {
-            } catch (IllegalArgumentException e) {
-            } catch (InvocationTargetException e) {
+            } catch (ClassNotFoundException | NoSuchMethodException | SecurityException | IllegalAccessException | InvocationTargetException | IllegalArgumentException | InstantiationException ignored) {
             }
             return false;
         }
@@ -2982,7 +2963,7 @@ class DeathListener implements Listener
     // empty message queue
     private void flushBroadcastDeath() {
         flushQueue.lock(); 
-        ArrayList<DeathMessage> dmq = new ArrayList<DeathMessage>(this.queue);
+        Iterable<DeathMessage> dmq = new ArrayList<>(this.queue);
         this.queue.clear();
         flushQueue.unlock();
         Iterator<DeathMessage> dmqi = dmq.iterator();
@@ -3018,29 +2999,29 @@ class DeathListener implements Listener
     public void onPlayerWorldChange(final PlayerChangedWorldEvent e) {
         final Player p = e.getPlayer();
         if (p.hasMetadata("dmp.lastDamageEnt2")) {
-            p.removeMetadata("dmp.lastDamageEnt2", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamageEnt2", this.pl);
         }
         if (p.hasMetadata("dmp.lastDamageEnt")) {
-            p.removeMetadata("dmp.lastDamageEnt", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamageEnt", this.pl);
         }
         if (p.hasMetadata("dmp.lastDamageEx")) {
-            p.removeMetadata("dmp.lastDamageEx", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamageEx", this.pl);
         }
         if (p.hasMetadata("dmp.lastDamage")) {
-            p.removeMetadata("dmp.lastDamage", (Plugin)this.pl);
+            p.removeMetadata("dmp.lastDamage", this.pl);
         }
     }
     
-    String getKillerName2(final Entity damager, final Player p) {
+    String getKillerName2(final Entity damager, final Metadatable p) {
         if (damager instanceof Player) {
             return ((Player)damager).getDisplayName();
         }
         return this.getKillerName(damager, p);
     }
     
-    String getKillerName(final Entity damager, final Player p) {
+    String getKillerName(final Entity damager, final Metadatable p) {
         if (damager instanceof Player) {
-            return ((Player)damager).getName();
+            return damager.getName();
         }
         if (damager == null) {
             return "";
@@ -3056,7 +3037,7 @@ class DeathListener implements Listener
         if (x.startsWith("[mob]")) {
             if (x.equalsIgnoreCase("[mob]player")) {
                 try {
-                    return ((Player)damager).getName();
+                    return ((AnimalTamer) damager).getName();
                 }
                 catch (ClassCastException cce) {
                     if (damager instanceof Projectile) {
@@ -3072,9 +3053,8 @@ class DeathListener implements Listener
                 }
             }
             if (damager instanceof LivingEntity) {
-                final LivingEntity le = (LivingEntity)damager;
-                if (le.getCustomName() != null && passable(le.getCustomName())) {
-                    return le.getCustomName();
+                if (damager.getCustomName() != null && passable(damager.getCustomName())) {
+                    return damager.getCustomName();
                 }
             }
             x = x.substring(5);
@@ -3107,31 +3087,29 @@ class DeathListener implements Listener
                 this.assertNotNull(o);
                 x = o.toString();
             }
-            catch (Exception ex) {}
-            catch (AssertionError assertionError) {}
+            catch (Exception | AssertionError ignored) {}
         }
         return ChatColor.translateAlternateColorCodes('&', x);
     }
     
     String getMobName(String mobType) {
-        String x = "";
+        String x;
         x = this.mobNameConfigurate(mobType);
         try {
             final Object o = this.fc.getString("mob-names." + x);
             this.assertNotNull(o);
             x = o.toString();
         }
-        catch (Exception ex) {}
-        catch (AssertionError assertionError) {}
+        catch (Exception | AssertionError ignored) {}
         return ChatColor.translateAlternateColorCodes('&', x);
     }
     
-    String getCheckName(final Entity damager, final Player p, final boolean display) {
+    String getCheckName(final Entity damager, final Metadatable p, final boolean display) {
         if (damager instanceof Player) {
             if (display) {
                 return ((Player)damager).getDisplayName();
             } else {
-                return ((Player)damager).getName();
+                return damager.getName();
             }
         }
         if (damager == null) {
@@ -3144,7 +3122,7 @@ class DeathListener implements Listener
         if (x.startsWith("[mob]")) {
             if (x.equalsIgnoreCase("[mob]player")) {
                 try {
-                    return ((Player)damager).getName();
+                    return ((AnimalTamer) damager).getName();
                 }
                 catch (ClassCastException cce) {
                     if (damager instanceof Projectile) {
@@ -3152,7 +3130,7 @@ class DeathListener implements Listener
                         if (display) {
                             return ((Player)ps).getDisplayName();
                         } else {
-                            return ((Player)ps).getName();
+                            return ((AnimalTamer) ps).getName();
                         }
                     }
                 }
@@ -3161,15 +3139,14 @@ class DeathListener implements Listener
                 }
             }
             if (damager instanceof LivingEntity) {
-                final LivingEntity le = (LivingEntity)damager;
-                if (le.getCustomName() != null && passable(le.getCustomName())) {
-                    return le.getCustomName();
+                if (damager.getCustomName() != null && passable(damager.getCustomName())) {
+                    return damager.getCustomName();
                 }
             }
             if (damager instanceof Projectile) {
                 final ProjectileSource ps = ((Projectile)damager).getShooter();
                 if (ps instanceof LivingEntity) {
-                    final LivingEntity le = (LivingEntity)ps;
+                    final Nameable le = (LivingEntity)ps;
                     if (le.getCustomName() != null && passable(le.getCustomName())) {
                         return le.getCustomName();
                     }
@@ -3197,12 +3174,11 @@ class DeathListener implements Listener
         }
         String x = damager.getType().toString();
         if (x.equalsIgnoreCase("player")) {
-            return ((Player)damager).getName();
+            return ((AnimalTamer) damager).getName();
         }
         if (damager instanceof LivingEntity) {
-            final LivingEntity le = (LivingEntity)damager;
-            if (le.getCustomName() != null && passable(le.getCustomName())) {
-                return le.getCustomName();
+            if (damager.getCustomName() != null && passable(damager.getCustomName())) {
+                return damager.getCustomName();
             }
         }
         if (!mcVer(1_011)) {
@@ -3221,8 +3197,7 @@ class DeathListener implements Listener
             this.assertNotNull(o);
             x = o.toString();
         }
-        catch (Exception ex) {}
-        catch (AssertionError assertionError) {}
+        catch (Exception | AssertionError ignored) {}
         return ChatColor.translateAlternateColorCodes('&', x);
     }
     
@@ -3230,7 +3205,7 @@ class DeathListener implements Listener
         if (!this.fc.contains(string)) {
             return "";
         }
-        final List<String> fx = (List<String>)this.fc.getStringList(string);
+        final List<String> fx = this.fc.getStringList(string);
         if (fx.size() < 1) {
             return "";
         }
@@ -3246,7 +3221,7 @@ class DeathListener implements Listener
         }
     }
     
-    void broadcastDebug(final String deathmsg, final Player victim, final World world, final boolean isPvP) {
+    void broadcastDebug(final String deathmsg, final Entity victim, final World world, final boolean isPvP) {
         if (!this.fc.getBoolean("per-world-messages")) {
             for (final Player p : this.pl.getServer().getOnlinePlayers()) {
                 if (p.hasPermission("deathmessagesprime.debug")) {
@@ -3286,7 +3261,7 @@ class DeathListener implements Listener
             }
             return;
         }
-        } catch (Exception ex) {
+        } catch (Exception ignored) {
         }
         double radius = -1, pvpradius = -1;
         Location vloc = victim.getLocation();
@@ -3316,7 +3291,7 @@ class DeathListener implements Listener
                     this.sendMessage(p, deathmsg);
                 }
             }
-        final ArrayList<String> f = new ArrayList<String>();
+        final Collection<String> f = new ArrayList<>();
         f.add(world.getName());
         if (this.fc.getBoolean("world-groups._enabled") && (radius < 0 && (!isPvP || pvpradius < 0))) {
             for (final String s : this.fc.getConfigurationSection("world-groups").getKeys(false)) {
@@ -3333,7 +3308,7 @@ class DeathListener implements Listener
                                 }
                             }
                         }
-                        catch (Exception ex) {}
+                        catch (Exception ignored) {}
                         f.add(t);
                     }
                 }
@@ -3472,8 +3447,8 @@ class DeathListener implements Listener
                     this.sendMessage(p, deathmsg);
             }   
         }
-        ArrayList<String> ps = new ArrayList<String>();
-        ArrayList<String> f = new ArrayList<String>();
+        Collection<String> ps = new ArrayList<>();
+        Collection<String> f = new ArrayList<>();
         f.add(world.getName());
         // broadcast to world groups
         if (this.fc.getBoolean("world-groups._enabled") && (radius < 0 && (!isPvP || pvpradius < 0))) {
@@ -3499,7 +3474,7 @@ class DeathListener implements Listener
                                 }
                             }
                         }
-                        catch (Exception ex) {}
+                        catch (Exception ignored) {}
                         f.add(t);
                     }
                 }
@@ -3509,13 +3484,13 @@ class DeathListener implements Listener
         f = null;
     }
 
-    private void sendMessage(final Player p, final String deathmsg) {
+    private void sendMessage(final CommandSender p, final String deathmsg) {
         if (deathmsg.length() > 0) {
             p.sendMessage(deathmsg);
         }
     }
     
-    private void sendMessage(final Player p, final TextComponent deathmsg) {
+    private void sendMessage(final CommandSender p, final TextComponent deathmsg) {
         p.spigot().sendMessage(deathmsg);
     }
     
@@ -3524,17 +3499,10 @@ class DeathListener implements Listener
         if (this.pr == EventPriority.HIGHEST) {
             this.onPlayerDeath_i(e);
         }
-        if (e.getEntity() == null) return;
         if (this.fc.getBoolean("death-message-compat-mode", true)) {
             if (e.getDeathMessage() == null) {
                 // remove from DMP queue
-                Iterator<DeathMessage> iter = queue.iterator();
-                while (iter.hasNext()) {
-                    DeathMessage dm = iter.next();
-                    if (dm == null || dm.v.getUniqueId().equals(e.getEntity().getUniqueId())) {
-                        iter.remove();
-                    }
-                }
+                queue.removeIf(dm -> dm == null || dm.v.getUniqueId().equals(e.getEntity().getUniqueId()));
                 return;
             }
             if (dmc.containsKey(e.getEntity().getUniqueId()) && dmc.get(e.getEntity().getUniqueId()).equals(e.getDeathMessage())) {
@@ -3546,13 +3514,7 @@ class DeathListener implements Listener
                     e.setDeathMessage("");
                 } else {
                     // remove from DMP queue
-                    Iterator<DeathMessage> iter = queue.iterator();
-                    while (iter.hasNext()) {
-                        DeathMessage dm = iter.next();
-                        if (dm == null || dm.v.getUniqueId().equals(e.getEntity().getUniqueId())) {
-                            iter.remove();
-                        }
-                    }
+                    queue.removeIf(dm -> dm == null || dm.v.getUniqueId().equals(e.getEntity().getUniqueId()));
                 }
             }
         }

@@ -41,10 +41,9 @@ import org.bukkit.entity.*;
  * 
  */
 
-public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
-{
-    public final int CONFIG_VERSION = 55;
-    
+public class DeathMessagesPrime extends JavaPlugin {
+    private static final int CONFIG_VERSION = 55;
+
     boolean debug;
     FileConfiguration config;
     /* World names of worlds in which PvP messages are hidden */
@@ -60,17 +59,10 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
     ArrayList<UUID> dmpban;
     HashMap<UUID, Long> tempban;
     HashMap<UUID, Boolean> showdeath;
-    static DeathMessagesPrime instance;
     static HashMap<String, DeathMessageTagListener> taglisteners;
     static HashMap<String, DeathMessageTagListener> taglistenerprefixes;
-    static boolean petMessages;
     private DeathListener dl;
-    
-    static {
-        DeathMessagesPrime.instance = null;
-        petMessages = false;
-    }
-    
+
     public DeathMessagesPrime() {
         this.debug = true;
         this.config = null;
@@ -80,8 +72,8 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
         this.pnl = null;
     }
 
-    private static int mc_ver = 0;
-    private static int mc_rev = 0;
+    private static int mc_ver;
+    private static int mc_rev;
     
     public static boolean mcVer(int comp) {
         return mc_ver >= comp;
@@ -92,11 +84,11 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
     }
     
     public void onEnable() {
-        (DeathMessagesPrime.instance = this).loadConfig();
-        taglisteners = new HashMap<String, DeathMessageTagListener>();
-        taglistenerprefixes = new HashMap<String, DeathMessageTagListener>();
+        this.loadConfig();
+        taglisteners = new HashMap<>();
+        taglistenerprefixes = new HashMap<>();
         dl = new DeathListener(this, this.config);
-        Bukkit.getPluginManager().registerEvents((Listener)dl, (Plugin)this);
+        Bukkit.getPluginManager().registerEvents(dl, this);
         try {
             dl.pr = EventPriority.valueOf(this.config.getString("death-listener-priority"));
         } catch (Exception ex) {
@@ -143,9 +135,9 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
     
     private void loadConfig() {
         this.config = this.getConfig();
-        this.dmpban = new ArrayList<UUID>();
-        this.tempban = new HashMap<UUID, Long>();
-        this.showdeath = new HashMap<UUID, Boolean>();
+        this.dmpban = new ArrayList<>();
+        this.tempban = new HashMap<>();
+        this.showdeath = new HashMap<>();
         try {
             this.config.load(new File(this.getDataFolder(), "config.yml"));
             if (!this.config.contains("config-version")) {
@@ -160,16 +152,7 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
         }
         catch (FileNotFoundException e6) {
             this.getLogger().info("Extracting default config.");
-            this.saveResource("config.yml", true);
-            try {
-                this.config.load(new File(this.getDataFolder(), "config.yml"));
-            }
-            catch (IOException | InvalidConfigurationException ex3) {
-                ex3.printStackTrace();
-                this.getLogger().severe("The JAR config is broken, disabling");
-                this.getServer().getPluginManager().disablePlugin((Plugin)this);
-                this.setEnabled(false);
-            }
+            extractConfig();
         }
         catch (ConfigTooOldException e3) {
             this.getLogger().warning("!!! WARNING !!! Your configuration is old. There may be new features or some config behavior might have changed, so it is advised to regenerate your config when possible!");
@@ -180,57 +163,33 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
             final boolean success = !new File(this.getDataFolder(), "config.yml").isFile() || new File(this.getDataFolder(), "config.yml").renameTo(new File(this.getDataFolder(), "config.yml.broken" + new Date().getTime()));
             if (!success) {
                 this.getLogger().severe("Cannot rename the broken config, disabling");
-                this.getServer().getPluginManager().disablePlugin((Plugin)this);
+                this.getServer().getPluginManager().disablePlugin(this);
                 this.setEnabled(false);
             }
-            this.saveResource("config.yml", true);
-            try {
-                this.config.load(new File(this.getDataFolder(), "config.yml"));
-            }
-            catch (IOException | InvalidConfigurationException ex4) {
-                ex4.printStackTrace();
-                this.getLogger().severe("The JAR config is broken, disabling");
-                this.getServer().getPluginManager().disablePlugin((Plugin)this);
-                this.setEnabled(false);
-            }
+            extractConfig();
         }
         this.debug = this.config.getBoolean("debug");
-        this.nl = (List<String>)this.config.getStringList("worlds-no-natural-death-messages");
-        if (this.nl == null) {
-            this.nl = new ArrayList<String>();
-        }
-        this.pl = (List<String>)this.config.getStringList("worlds-no-pvp-death-messages");
-        if (this.pl == null) {
-            this.pl = new ArrayList<String>();
-        }
-        this.pnl = (List<String>)this.config.getStringList("worlds-private-natural-death-messages");
-        if (this.pnl == null) {
-            this.pnl = new ArrayList<String>();
-        }
-        this.ppl = (List<String>)this.config.getStringList("worlds-private-pvp-death-messages");
-        if (this.ppl == null) {
-            this.ppl = new ArrayList<String>();
-        }
-        petMessages = this.config.getBoolean("show-named-pet-death-messages", false);
+        this.nl = this.config.getStringList("worlds-no-natural-death-messages");
+        this.pl = this.config.getStringList("worlds-no-pvp-death-messages");
+        this.pnl = this.config.getStringList("worlds-private-natural-death-messages");
+        this.ppl = this.config.getStringList("worlds-private-pvp-death-messages");
         List<String> banned = this.config.getStringList("player-blacklist");
-        if (banned != null) {
-            for (String s: banned) {
-                try {
-                    dmpban.add(UUID.fromString(s));
-                } catch (Exception ex) {
-                    this.getLogger().warning("Illegal UUID in player blacklist! " + s);
-                }
+        for (String s: banned) {
+            try {
+                dmpban.add(UUID.fromString(s));
+            } catch (Exception ex) {
+                this.getLogger().warning("Illegal UUID in player blacklist! " + s);
             }
         }
-        this.radius = new HashMap<String, Double>();
-        this.pvpradius = new HashMap<String, Double>();
+        this.radius = new HashMap<>();
+        this.pvpradius = new HashMap<>();
         try {
             ConfigurationSection cs = this.config.getConfigurationSection("worlds-death-message-radius");
             for (String key: cs.getKeys(false)) {
                 double d = cs.getDouble(key);
                 radius.put(key, d * d);
             }
-        } catch (NullPointerException ex) {
+        } catch (NullPointerException ignored) {
         } catch (Exception ex) {
             ex.printStackTrace();
         }
@@ -240,12 +199,25 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
                 double d = cs.getDouble(key);
                 pvpradius.put(key, d * d);
             }
-        } catch (NullPointerException ex) {
+        } catch (NullPointerException ignored) {
         } catch (Exception ex) {
             ex.printStackTrace();
         }
     }
-    
+
+    private void extractConfig() {
+        this.saveResource("config.yml", true);
+        try {
+            this.config.load(new File(this.getDataFolder(), "config.yml"));
+        }
+        catch (IOException | InvalidConfigurationException ex3) {
+            ex3.printStackTrace();
+            this.getLogger().severe("The JAR config is broken, disabling");
+            this.getServer().getPluginManager().disablePlugin(this);
+            this.setEnabled(false);
+        }
+    }
+
     /**
      * Gets the death message for a specific PlayerDeathEvent. This
      * death message may either be the default death message given
@@ -306,7 +278,7 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
      * Registers a tag prefix for use in death messages.
      * 
      * @param plugin The plugin that is registering a tag.
-     * @param tag A unique prefix for tags. It will be automatically followed by an underscore. For example, if the prefix is test, the plugin will get formatTag calls for %test_*%, with * being anything. 
+     * @param prefix A unique prefix for tags. It will be automatically followed by an underscore. For example, if the prefix is test, the plugin will get formatTag calls for %test_*%, with * being anything.
      * 
      * If it overlaps with existing tags in DeathMessagesPrime itself, the register will be successful, but the listener will never be called.
      * Tag listeners should return null on failure or "unknown tag". 
@@ -377,7 +349,7 @@ public class DeathMessagesPrime extends JavaPlugin implements TabCompleter
                 sender.sendMessage(COMMAND_NO_PERMISSION_MESSAGE);
                 return true;
             }
-            UUID u = ((Player) sender).getUniqueId();
+            UUID u = ((Entity) sender).getUniqueId();
             boolean old_value = false;
             if (showdeath.containsKey(u))
                 old_value = showdeath.get(u);

@@ -9,9 +9,6 @@ import org.bukkit.event.HandlerList;
  */
 public class DMPReloadEvent extends Event {
     private static final HandlerList handlers = new HandlerList();
-    
-    public DMPReloadEvent() {
-    }
 
     @Override
     public HandlerList getHandlers() {

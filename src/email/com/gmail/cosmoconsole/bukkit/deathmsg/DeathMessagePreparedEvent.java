@@ -28,8 +28,8 @@ public class DeathMessagePreparedEvent extends Event {
         this.message = message;
         this.player = player;
         this.isPvP = isPvP;
-        this.alwaysShow = new HashSet<UUID>();
-        this.alwaysHide = new HashSet<UUID>();
+        this.alwaysShow = new HashSet<>();
+        this.alwaysHide = new HashSet<>();
     }
 
     @Override
